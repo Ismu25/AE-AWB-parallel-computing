@@ -16,9 +16,9 @@ Dependencies:
 
 	https://github.com/libigl/libigl-stb/blob/cd0fa3fcd90325c83be4d697b00214e029f94ca3/stb_image.h
 	https://github.com/libigl/libigl-stb/blob/cd0fa3fcd90325c83be4d697b00214e029f94ca3/stb_image_write.h
-
-  For CUDA versions:
-	https://github.com/kashif/cuda-workshop/tree/82228c49be5670cbf29f91bb5928090581ad05ca/cutil/inc
+ 	[CUDA versions only] https://github.com/kashif/cuda-workshop/tree/82228c49be5670cbf29f91bb5928090581ad05ca/cutil/inc
+	
+  	
 
 
 [1] G Zapryanov, D Ivanova and I Nikolova, “Automatic white balance algorithms fordigital stillcameras–a comparative study,” Inf. Technol. Control., 2012. 
