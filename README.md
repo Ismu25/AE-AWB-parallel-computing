@@ -21,7 +21,8 @@ Dependencies:
   	
 
 
-[1] G Zapryanov, D Ivanova and I Nikolova, “Automatic white balance algorithms fordigital stillcameras–a comparative study,” Inf. Technol. Control., 2012. 
+[1] G Zapryanov, D Ivanova and I Nikolova, “Automatic white balance algorithms fordigital stillcameras–a comparative study,” Inf. Technol. Control., 2012.
+ 
 [2] Q. K. Vuong, S.-H. Yun and S. Kim, “A new auto exposure and auto white-balance algorithm to detect high dynamic range conditions using cmos technology,” in Proceedings of the world congress on engineering and computer science San Francisco, USA: IEEE, 2008, pages 22–24. 
 
 
