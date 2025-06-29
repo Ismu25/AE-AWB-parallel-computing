@@ -2,6 +2,7 @@
 // Tile multiplication
 ////////////////////////////////////////////////////////////////////////////////
 
+
 // Valor máximo del canal de color - 2^8-1
 #define MAX_COLOR_CHANNEL_VALUE 255
 
@@ -48,7 +49,7 @@ __global__ void apply_fusion(Pixel* image1, Pixel * image2, Pixel* imageRes, int
     int row = blockIdx.y * blockDim.y + threadIdx.y;
 	int col = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if(row < height&& col < width){
+	if(row < height && col < width){
         Pixel pixel1 = image1[row * (width + pixel_padding) + col];
 	    Pixel pixel2 = image2[row * (width + pixel_padding) + col];
         Pixel * pixelRes = &(imageRes[row * width + col]);
@@ -171,7 +172,7 @@ __global__ void calculate_dev(Pixel* image, int width, int height, int pixel_pad
 
 __global__ void calculate_weighted_mean(double * mean_red, double * mean_green, double * mean_blue,
                                        double * dev_red, double * dev_green, double * dev_blue,
-                                       double * dev_red_t, double * dev_green_t, double * dev_blue_t,
+                                       double dev_red_t, double dev_green_t, double dev_blue_t,
                                        double * std_avg_r, double * std_avg_g, double * std_avg_b,  int block_number) {
     int tidg = blockIdx.x * blockDim.x + threadIdx.x;
     if(tidg < block_number){
@@ -183,9 +184,9 @@ __global__ void calculate_weighted_mean(double * mean_red, double * mean_green, 
         double local_dev_green = dev_green[tidg];
         double local_dev_blue  = dev_blue[tidg]; 
 
-        atomicAdd(std_avg_r, (local_mean_red   * (local_dev_red   / *dev_red_t)) );
-        atomicAdd(std_avg_g, (local_mean_green * (local_dev_green / *dev_green_t)) );
-        atomicAdd(std_avg_b, (local_mean_blue  * (local_dev_blue  / *dev_blue_t)) );
+        atomicAdd(std_avg_r, (local_mean_red   * (local_dev_red   / dev_red_t)) );
+        atomicAdd(std_avg_g, (local_mean_green * (local_dev_green / dev_green_t)) );
+        atomicAdd(std_avg_b, (local_mean_blue  * (local_dev_blue  / dev_blue_t)) );
     }
 }
 
@@ -206,6 +207,5 @@ __global__ void apply_correction(Pixel * imageOrg, Pixel * imageRes, int height,
         dataRes->g = green < MAX_COLOR_CHANNEL_VALUE ? (uint8_t) green : MAX_COLOR_CHANNEL_VALUE;
         dataRes->b = blue < MAX_COLOR_CHANNEL_VALUE ? (uint8_t) blue : MAX_COLOR_CHANNEL_VALUE;
         dataRes->stride = dataOrg->stride;  
-        
     }
 }
