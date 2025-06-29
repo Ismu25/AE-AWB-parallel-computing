@@ -13,6 +13,7 @@ The output of AE or if only one image is passed will go to the second Algorithm.
 - CUDA-OpenMP: Uses the GPU and CPU to its maximum. Thread 0 on the CPU will communicate and manage with the GPU, while the rest of threads will compute the number of blocks left to the CPU.
 
 Dependencies: 
+
 	https://github.com/libigl/libigl-stb/blob/cd0fa3fcd90325c83be4d697b00214e029f94ca3/stb_image.h
 	https://github.com/libigl/libigl-stb/blob/cd0fa3fcd90325c83be4d697b00214e029f94ca3/stb_image_write.h
 
