@@ -11,6 +11,7 @@
 #include "stb_image_write.h"
 #include <omp.h>
 #include <mpi.h>
+#include <time.h>
 
 // Tamaño en bytes de un pixel
 #define PIXEL_SIZE 4
@@ -542,6 +543,14 @@ void create_submatrix_type(int global_rows, int global_cols, int sub_rows, int s
     MPI_Type_commit(submatrix_type);
 }
 
+// Dota de información aleatoria a un buffer de memory
+void fill_buffer(uint8_t * buffer, uint x, uint y) {
+    srand(time(NULL));
+    for(int i=0; i<x*y;i++)
+        buffer[i] = rand() % MAX_COLOR_CHANNEL_VALUE;
+}
+
+
 // Copia un bloque de la matriz a otra sección de memoria (elimina padding)
 void copy_matrix_buffer(ImageBuffer* iBufOrg, Pixel* iBufRes, ImageBlock* imageBlock) {
     Pixel *iBufResAux = iBufRes;
@@ -747,12 +756,17 @@ int main(int argc, char* argv[]) {
     int type = PROCESS_COMPLETE; // Rechange in all places
     
     int retv = CORRECT;
+    
+    bool test = false;
+    int test_x = 0;
+    int test_y = 0;
 
     char name[MPI_MAX_PROCESSOR_NAME];
     int len;
     int fusion = 0;
     int stepFlag = 0;
     int force_pad = 0;
+
     
     // Inicialización de MPI
     MPI_Init(&argc, &argv);
@@ -865,6 +879,30 @@ int main(int argc, char* argv[]) {
                         retv = ERROR;
                     }
                 }
+                else if (strcmp(argv[i],"--test-x") == 0) { // Número de divisiones de Y
+                    if (i + 1 < argc) {
+                        test_x = atoi(argv[i + 1]);
+                        i++;
+                    }
+                    else {
+                        std::cerr << "-Expected int after test-x" << std::endl;
+                        retv = ERROR;
+                    }
+                }
+                else if (strcmp(argv[i],"--test-y") == 0) { // Número de divisiones de Y
+                    if (i + 1 < argc) {
+                        test_y = atoi(argv[i + 1]);
+                        i++;
+                    }
+                    else {
+                        std::cerr << "-Expected int after test-y" << std::endl;
+                        retv = ERROR;
+                    }
+                }
+                
+                else if (strcmp(argv[i], "--test") == 0) { // Nombre del fichero de salida
+                    test = true;
+                }
                 else {
                     retv = ERROR;
                 }
@@ -882,10 +920,38 @@ int main(int argc, char* argv[]) {
         }
 
         // Manejo de errores
-        if (first) { 
-            std::cerr << "It is expected that the first input file is passed" << std::endl;
-            retv = ERROR;
+        if(!test){
+            if (first) { 
+                std::cerr << "It is expected that the first input file is passed" << std::endl;
+                retv = ERROR;
+            }
+
+            if (type == PROCESS_EXPOSITION && fileInput2 == NULL){
+                std::cerr << "For exposure correction only second input is needed" << std::endl;
+                retv = ERROR;
+            }
+
+            if (type == PROCESS_COLOR && fileInput2 != NULL) {
+                std::cerr << "For color correction second input is not allowed" << std::endl;
+                retv = ERROR;
+            }
+            if (type != PROCESS_COMPLETE && fileStepOutput != NULL) {
+                std::cerr << "Saving Image between corrections is incompatible with single correction modes" << std::endl;
+                retv = ERROR;
+            }
+        } else {
+            if (test_x < 0 || test_y < 0) {
+                std::cerr << "Dimensions of test matrix must be a positive number greater than 0" << std::endl;
+                retv = ERROR;
+            }
+            
+            if ((xDimensions >= test_x) || (yDimensions >= test_y)) {
+                std::cerr <<  "Width and Height of test matrix must be bigger than the dimensions specified" << std::endl;
+                retv = ERROR;
+            }
         }
+
+        
         if(numThreads <= 0){
             std::cerr << "Number of threads must be greater than 0" << std::endl;
             retv = ERROR;
@@ -896,18 +962,6 @@ int main(int argc, char* argv[]) {
         }
         if(force_pad < 0){
             std::cerr << "Force padding must be equal or greater than 0" << std::endl;
-            retv = ERROR;
-        }
-        if (type == PROCESS_EXPOSITION && fileInput2 == NULL) {
-            std::cerr << "For exposure correction only second input is needed" << std::endl;
-            retv = ERROR;
-        }
-        if (type == PROCESS_COLOR && fileInput2 != NULL) {
-            std::cerr << "For color correction second input is not allowed" << std::endl;
-            retv = ERROR;
-        }
-        if (type != PROCESS_COMPLETE && fileStepOutput != NULL) {
-            std::cerr << "Saving Image between corrections is incompatible with single correction modes" << std::endl;
             retv = ERROR;
         }
         if (processNumber > xDimensions * yDimensions) {
@@ -931,78 +985,119 @@ int main(int argc, char* argv[]) {
 
             goto result_param; // ALL PROCESS EXIT !!!
         }
-
-        // Carga de la primera imagen
-        image1 = stbi_load(fileInput1, &width, &height, &channels, 0);
-        if (image1 == NULL) {
-            std::cerr << "Could not load image 1" << std::endl;
-            
-            retv = ERROR;
-            goto result_param; // ALL PROCESS EXIT !!!
-        }
-        else {
-            if (verbose) {
-                std::cout << "File 1 Name : " << fileInput1 << std::endl;
-                std::cout << "Width : " << width << std::endl;
-                std::cout << "Height : " << height << std::endl;
-                std::cout << "Channels : " << channels << std::endl << std::endl;
-            }
-        }
-
-        if (height < yDimensions || width < xDimensions) {
-            stbi_image_free(image1);
-            std::cerr << "Width and Height must be bigger than the dimensions specified" << std::endl;
-            
-            retv = ERROR;
-            goto result_param; // ALL PROCESS EXIT !!!
-        }
-
-        if(width - force_pad <= 0){
-            stbi_image_free(image1);
-            std::cerr << "Force_pad needs to be lower than the width" << std::endl;
-            retv = ERROR;
-            goto result_param; // ALL PROCESS EXIT !!!
-        }
-
-        if ((width - force_pad) * height < 2 * xDimensions * yDimensions)  {
-            stbi_image_free(image1);
-            std::cerr << "Pixels per block must be at least 2" << std::endl;
-            retv = ERROR;
-            goto result_param; // ALL PROCESS EXIT !!!
-        }
-    
-        // Carga de la segunda imagen
-        
-        if (fileInput2 != NULL) {
-            int width2, height2, channels2;
-            image2 = stbi_load(fileInput2, &width2, &height2, &channels2, 0);
-            if (image2 == NULL) {
-                stbi_image_free(image1);
-                std::cerr << "Could not load image 2" << std::endl;
+        if(!test){
+            // Carga de la primera imagen
+            image1 = stbi_load(fileInput1, &width, &height, &channels, 0);
+            if (image1 == NULL) {
+                std::cerr << "Could not load image 1" << std::endl;
                 
                 retv = ERROR;
                 goto result_param; // ALL PROCESS EXIT !!!
             }
             else {
                 if (verbose) {
-                    std::cout << "File 2 Name : " << fileInput2 << std::endl;
-                    std::cout << "Width : " << width2 << std::endl;
-                    std::cout << "Height : " << height2 << std::endl;
-                    std::cout << "Channels : " << channels2 << std::endl << std::endl;
+                    std::cout << "File 1 Name : " << fileInput1 << std::endl;
+                    std::cout << "Width : " << width << std::endl;
+                    std::cout << "Height : " << height << std::endl;
+                    std::cout << "Channels : " << channels << std::endl << std::endl;
                 }
             }
 
-            // Comprobación que las imágenes tienen las mismas dimensiones
-            if (width != width2 || height != height2 || channels != channels2 || channels != CHANNEL_NUMBER) {
+            if (height < yDimensions || width < xDimensions) {
                 stbi_image_free(image1);
-                stbi_image_free(image2);
-                std::cerr << "Images´ format didnt have four channels" << std::endl;
+                std::cerr << "Width and Height must be bigger than the dimensions specified" << std::endl;
                 
                 retv = ERROR;
                 goto result_param; // ALL PROCESS EXIT !!!
             }
+
+            if(width - force_pad <= 0){
+                stbi_image_free(image1);
+                std::cerr << "Force_pad needs to be lower than the width" << std::endl;
+                retv = ERROR;
+                goto result_param; // ALL PROCESS EXIT !!!
+            }
+
+            if ((width - force_pad) * height < 2 * xDimensions * yDimensions)  {
+                stbi_image_free(image1);
+                std::cerr << "Pixels per block must be at least 2" << std::endl;
+                retv = ERROR;
+                goto result_param; // ALL PROCESS EXIT !!!
+            }
+        
+            // Carga de la segunda imagen
+            
+            if (fileInput2 != NULL) {
+                int width2, height2, channels2;
+                image2 = stbi_load(fileInput2, &width2, &height2, &channels2, 0);
+                if (image2 == NULL) {
+                    stbi_image_free(image1);
+                    std::cerr << "Could not load image 2" << std::endl;
+                    
+                    retv = ERROR;
+                    goto result_param; // ALL PROCESS EXIT !!!
+                }
+                else {
+                    if (verbose) {
+                        std::cout << "File 2 Name : " << fileInput2 << std::endl;
+                        std::cout << "Width : " << width2 << std::endl;
+                        std::cout << "Height : " << height2 << std::endl;
+                        std::cout << "Channels : " << channels2 << std::endl << std::endl;
+                    }
+                }
+
+                // Comprobación que las imágenes tienen las mismas dimensiones
+                if (width != width2 || height != height2 || channels != channels2 || channels != CHANNEL_NUMBER) {
+                    stbi_image_free(image1);
+                    stbi_image_free(image2);
+                    std::cerr << "Images´ format didnt have four channels" << std::endl;
+                    
+                    retv = ERROR;
+                    goto result_param; // ALL PROCESS EXIT !!!
+                }
+            }
+            width = width - force_pad;
+
+        } else {
+            image1 = (uint8_t*) malloc( test_x * test_y * sizeof(struct Pixel));
+            image2 = (uint8_t*) malloc( test_x * test_y * sizeof(struct Pixel));
+
+            if(image1 == NULL || image2 == NULL){
+                std::cerr << "Could not load image 2" << std::endl;
+                    
+                retv = ERROR;
+                goto result_param; // ALL PROCESS EXIT !!!
+            }
+            
+            channels = CHANNEL_NUMBER;
+            width = test_x;
+            height = test_y;
+            fileStepOutput = NULL;
+            type = PROCESS_COMPLETE;
+            stepFlag = 0;
+            
+            if(width - force_pad <= 0){
+                free(image1);
+                free(image2);
+                std::cerr << "Force_pad needs to be lower than the width" << std::endl;
+                retv = ERROR;
+                goto result_param; // ALL PROCESS EXIT !!!
+            }
+
+            if ((width - force_pad) * height < 2 * xDimensions * yDimensions)  {
+                free(image1);
+                free(image2);
+                std::cerr << "Pixels per block must be at least 2" << std::endl;
+                retv = ERROR;
+                goto result_param; // ALL PROCESS EXIT !!!
+            }
+
+            width = width - force_pad;
+
+            fill_buffer(image1, width, height);
+            fill_buffer(image2, width, height);
+
         }
-        width = width - force_pad;
     }
 
  
@@ -1029,6 +1124,7 @@ result_param:
     MPI_Bcast(&channels, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&fusion, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&stepFlag, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&test, 1, MPI_INT, 0, MPI_COMM_WORLD);
     
     if(verbose)
         printf("< %s >: process %d of %d\n", name, rank, processNumber);
@@ -1203,18 +1299,20 @@ result_param:
     if(rank == 0){
         // Guardado de la imagen resultado
         printf("\nTime = %.4lf seconds\n", tf - ti);
-        if (verbose)
-            std::cout << std::endl << "Saving Image" << std::endl;
-        int result = stbi_write_png(fileOutput, width, height, channels, imRes->mappedData, width * channels);
-        if (result) {
+        if(!test){
             if (verbose)
-                std::cout << std::endl << "Completed image transformation" << std::endl;
+                std::cout << std::endl << "Saving Image" << std::endl;
+            int result = stbi_write_png(fileOutput, width, height, channels, imRes->mappedData, width * channels);
+            if (result) {
+                if (verbose)
+                    std::cout << std::endl << "Completed image transformation" << std::endl;
+            }
+            else {
+                std::cerr << "Error when saving image" << std::endl;
+            }
+            // Liberación de la memoria del resultado
+            imRes = deleteBuffer(imRes);
         }
-        else {
-            std::cerr << "Error when saving image" << std::endl;
-        }
-        // Liberación de la memoria del resultado
-        imRes = deleteBuffer(imRes);
     }
     
 
@@ -1232,11 +1330,18 @@ result_param:
         delete [] matrixTypesArray;
         delete [] matrixTypesArray_paddless;
 
-        stbi_image_free(image1);
-        im1 = deleteBufferNoAlloc(im1);
-        if (im2 != NULL) {
-            stbi_image_free(image2);
-            im2 = deleteBufferNoAlloc(im2);
+        if(!test){
+            stbi_image_free(image1);
+            im1 = deleteBufferNoAlloc(im1);
+            if (im2 != NULL) {
+                stbi_image_free(image2);
+                im2 = deleteBufferNoAlloc(im2);
+            }
+        } else {
+            free(image1);
+            free(image2);
+            im1 = deleteBufferNoAlloc(im1);
+            im2 = deleteBufferNoAlloc(im1);
         }
 
         ibs = deleteBlocks(ibs);
